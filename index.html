@@ -122,6 +122,13 @@
   .tp-stats{display:flex;justify-content:center;gap:20px;margin-top:16px;font-size:13px;color:var(--muted)}
   .tp-stats b{color:var(--ink)}
 
+  /* bulk add */
+  textarea{width:100%;border:1px solid var(--border);border-radius:9px;padding:10px 12px;font-size:14px;font-family:inherit;outline:none;background:#fff;resize:vertical;line-height:1.5}
+  textarea:focus{border-color:#a5b4fc;box-shadow:0 0 0 3px var(--indigo-l)}
+  .bulk-toggle{margin:10px 0 0;font-size:13px}
+  .bulk-toggle a{color:var(--indigo);cursor:pointer}
+  .bulk-hint{font-size:12px;color:var(--muted2);margin:8px 0 0}
+
   /* cloud sync */
   .sync{display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--indigo-l);border:1px solid #c7d2fe;border-radius:12px;padding:8px 12px;font-size:13px;color:var(--indigo-d);margin-bottom:12px}
   .sync button{border:0;background:var(--indigo);color:#fff;border-radius:8px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;flex:none}
@@ -172,6 +179,7 @@
   var query = "";
   var revIdx = 0, revFlip = false;
   var confirmId = null;
+  var bulkOpen = false, bulkMsg = "";
 
   function load(){ try{ return JSON.parse(localStorage.getItem(KEY)) || []; }catch(e){ return []; } }
   function save(){ try{ localStorage.setItem(KEY, JSON.stringify(words)); }catch(e){} renderCount(); render(); }
@@ -218,6 +226,14 @@
         '</div>'+
         '<button class="btn btn-primary" data-action="add">+ เพิ่มคำศัพท์</button>'+
       '</div>'+
+      '<p class="bulk-toggle"><a data-action="bulk-toggle">'+(bulkOpen?"▾ ซ่อนการเพิ่มทีละหลายคำ":"▸ เพิ่มทีละหลายคำ (จากหนังสือ/รายการ)")+'</a></p>'+
+      (bulkOpen ?
+        '<div class="card" style="margin-top:8px">'+
+          '<textarea id="bulk" rows="6" placeholder="บรรทัดละ 1 คำ เช่น&#10;apple = แอปเปิ้ล&#10;run = วิ่ง = v.&#10;give up = ยอมแพ้ = phrase"></textarea>'+
+          '<button class="btn btn-primary" data-action="bulk-add">+ เพิ่มทั้งหมด</button>'+
+          (bulkMsg ? '<p class="bulk-hint" style="color:var(--emerald-tx);font-weight:600">'+esc(bulkMsg)+'</p>' : '')+
+          '<p class="bulk-hint">รูปแบบ: คำศัพท์ = ความหมาย = ชนิดคำ (ชนิดคำไม่บังคับ) · ใช้ = หรือ , หรือ Tab คั่นก็ได้ · คำที่มีอยู่แล้วจะถูกข้ามให้อัตโนมัติ</p>'+
+        '</div>' : '')+
       '<div class="search"><input id="search" placeholder="ค้นหาคำศัพท์หรือความหมาย…" value="'+esc(query)+'" /></div>'+
       '<div class="chips" id="chips"></div>'+
       '<div id="list" class="list"></div>'+
@@ -457,18 +473,53 @@
 
   /* ---------- TYPE PRACTICE ---------- */
   var tpSet="learning", tpDeck=[], tpIdx=0, tpPrev="", tpStart=0,
-      tpKeys=0, tpErr=0, tpChars=0, tpDone=false, tpWrong=[], tpCurWrong=false, tpSpeak=false;
+      tpKeys=0, tpErr=0, tpChars=0, tpDone=false, tpWrong=[], tpCurWrong=false, tpSpeak=false,
+      tpTimeLimit=0, tpEndsAt=0, tpTimer=null, tpWordsDone=0, tpFinalWpm=0;
 
   function shuffle(a){ for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)), t=a[i]; a[i]=a[j]; a[j]=t; } return a; }
   function tpFilter(){ return tpSet==="all" ? words.slice() : words.filter(function(w){ return w.status===tpSet; }); }
-  function tpInit(){ tpDeck=shuffle(tpFilter()); tpIdx=0; tpPrev=""; tpStart=0; tpKeys=0; tpErr=0; tpChars=0; tpDone=false; tpWrong=[]; tpCurWrong=false; }
+  function tpInit(){ tpStopTimer(); tpDeck=shuffle(tpFilter()); tpIdx=0; tpPrev=""; tpStart=0; tpKeys=0; tpErr=0; tpChars=0; tpDone=false; tpWrong=[]; tpCurWrong=false; tpEndsAt=0; tpWordsDone=0; tpFinalWpm=0; }
   function tpWpm(){ if(!tpStart) return 0; var m=(Date.now()-tpStart)/60000; return m>0 ? Math.round((tpChars/5)/m) : 0; }
   function tpAcc(){ return tpKeys ? Math.round((tpKeys-tpErr)/tpKeys*100) : 100; }
   function tpMarkWrong(){ if(!tpCurWrong){ tpCurWrong=true; tpWrong.push(tpDeck[tpIdx]); } }
 
+  function tpStopTimer(){ if(tpTimer){ clearInterval(tpTimer); tpTimer=null; } }
+
+  function tpBegin(){
+    if(tpStart) return;
+    tpStart = Date.now();
+    if(tpTimeLimit > 0){
+      tpEndsAt = tpStart + tpTimeLimit*1000;
+      tpTimer = setInterval(tpTick, 250);
+    }
+  }
+
+  function tpTick(){
+    if(view!=="type" || tpDone){ tpStopTimer(); return; }
+    var left = Math.max(0, Math.ceil((tpEndsAt - Date.now())/1000));
+    var el = document.getElementById("tpTime");
+    if(el) el.textContent = left;
+    if(left <= 0){
+      tpStopTimer();
+      tpFinalWpm = tpWpm();
+      tpDone = true;
+      renderType();
+    }
+  }
+
+  function tpFinish(){
+    tpStopTimer();
+    tpFinalWpm = tpWpm();
+    tpDone = true;
+    renderType();
+  }
+
   function tpNext(inp){
     tpIdx++; tpPrev=""; tpCurWrong=false; if(inp) inp.value="";
-    if(tpIdx>=tpDeck.length){ tpDone=true; renderType(); return; }
+    if(tpIdx>=tpDeck.length){
+      if(tpTimeLimit>0 && tpStart){ shuffle(tpDeck); tpIdx=0; }
+      else { tpFinish(); return; }
+    }
     tpPaint();
     if(tpSpeak) speakOne(tpDeck[tpIdx].word,"en",1);
   }
@@ -476,7 +527,7 @@
   function tpType(inp){
     if(tpDone || !tpDeck.length) return;
     var w=tpDeck[tpIdx].word, val=inp.value;
-    if(!tpStart && val) tpStart=Date.now();
+    if(val) tpBegin();
     if(val.length>tpPrev.length){
       for(var i=tpPrev.length;i<val.length;i++){
         tpKeys++;
@@ -484,7 +535,7 @@
       }
     }
     tpPrev=val;
-    if(val.toLowerCase()===w.toLowerCase()){ tpChars+=w.length+1; tpNext(inp); }
+    if(val.toLowerCase()===w.toLowerCase()){ tpChars+=w.length+1; tpWordsDone++; tpNext(inp); }
     else tpPaint();
   }
 
@@ -505,7 +556,10 @@
     }
     for(i=w.length;i<val.length;i++){ html += '<span class="bad">'+(val.charAt(i)===" "?" ":esc(val.charAt(i)))+'</span>'; }
     if(box) box.innerHTML=html;
-    if(st) st.innerHTML='<span>คำที่ <b>'+(tpIdx+1)+'/'+tpDeck.length+'</b></span><span>ความเร็ว <b>'+tpWpm()+'</b> WPM</span><span>แม่นยำ <b>'+tpAcc()+'%</b></span>';
+    var prog = (tpTimeLimit>0)
+      ? '<span>พิมพ์แล้ว <b>'+tpWordsDone+'</b> คำ</span><span>เหลือ <b id="tpTime">'+(tpStart ? Math.max(0,Math.ceil((tpEndsAt-Date.now())/1000)) : tpTimeLimit)+'</b> วิ</span>'
+      : '<span>คำที่ <b>'+(tpIdx+1)+'/'+tpDeck.length+'</b></span>';
+    if(st) st.innerHTML = prog+'<span>ความเร็ว <b>'+tpWpm()+'</b> WPM</span><span>แม่นยำ <b>'+tpAcc()+'%</b></span>';
   }
 
   function renderType(){
@@ -513,9 +567,12 @@
       root.innerHTML = '<div class="empty">เพิ่มคำศัพท์ก่อน แล้วค่อยมาฝึกพิมพ์นะครับ</div>'; return;
     }
     function setBtn(id,label){ return '<button class="pill'+(tpSet===id?" on":"")+'" data-action="tp-set" data-s="'+id+'">'+label+'</button>'; }
+    function timeBtn(v,label){ return '<button class="pill'+(tpTimeLimit===v?" on":"")+'" data-action="tp-time" data-t="'+v+'">'+label+'</button>'; }
     var picker =
       '<div class="pl-set"><div class="pl-row-label">ฝึกชุดไหน</div><div class="pills">'+
         setBtn("learning","กำลังจำ")+setBtn("new","ใหม่")+setBtn("all","ทั้งหมด")+'</div></div>'+
+      '<div class="pl-set"><div class="pl-row-label">จับเวลา</div><div class="pills">'+
+        timeBtn(0,"ไม่จับเวลา")+timeBtn(30,"30 วิ")+timeBtn(60,"1 นาที")+timeBtn(120,"2 นาที")+'</div></div>'+
       '<div class="pl-set"><div class="pills"><button class="pill'+(tpSpeak?" on":"")+'" data-action="tp-speak">'+(tpSpeak?"✓ ":"")+'อ่านออกเสียงเมื่อขึ้นคำใหม่</button></div></div>';
 
     if(tpDone){
@@ -525,10 +582,10 @@
         : '<div class="done" style="margin-top:16px;padding:24px 16px"><h2 style="font-size:18px">พิมพ์ถูกทุกคำ! 🎉</h2><p>ไม่มีคำที่พิมพ์ผิดเลย</p></div>';
       root.innerHTML =
         '<div class="card stat-hero">'+
-          '<div style="color:var(--muted);font-size:14px">ผลการฝึกพิมพ์ · '+tpDeck.length+' คำ</div>'+
-          '<div class="big">'+tpWpm()+'</div>'+
+          '<div style="color:var(--muted);font-size:14px">ผลการฝึกพิมพ์ · '+(tpTimeLimit>0 ? "จับเวลา "+tpTimeLimit+" วินาที" : "ครบชุด "+tpDeck.length+" คำ")+'</div>'+
+          '<div class="big">'+tpFinalWpm+'</div>'+
           '<div style="color:var(--muted);font-size:14px">WPM</div>'+
-          '<div class="sub2">ความแม่นยำ '+tpAcc()+'%</div>'+
+          '<div class="sub2">ความแม่นยำ '+tpAcc()+'% · พิมพ์ถูก '+tpWordsDone+' คำ</div>'+
         '</div>'+wrongHtml+
         '<button class="btn btn-primary" data-action="tp-again">ฝึกอีกครั้ง</button>'+picker;
       return;
@@ -559,6 +616,7 @@
 
     if(a==="tab"){
       stopSpeak();
+      tpStopTimer();
       view = t.getAttribute("data-v");
       filter="all"; revIdx=0; revFlip=false; confirmId=null;
       if(view==="type") tpInit();
@@ -606,9 +664,12 @@
     else if(a==="ls-speed"){ lsRate=parseFloat(t.getAttribute("data-r")); renderListen(); }
     else if(a==="ls-thai"){ lsThai=!lsThai; renderListen(); }
     else if(a==="tp-set"){ tpSet=t.getAttribute("data-s"); tpInit(); renderType(); }
+    else if(a==="tp-time"){ tpTimeLimit=parseInt(t.getAttribute("data-t"),10)||0; tpInit(); renderType(); }
     else if(a==="tp-speak"){ tpSpeak=!tpSpeak; renderType(); }
     else if(a==="tp-again"){ tpInit(); renderType(); }
     else if(a==="tp-focus"){ var ti=document.getElementById("tpInput"); if(ti) ti.focus(); }
+    else if(a==="bulk-toggle"){ bulkOpen=!bulkOpen; bulkMsg=""; renderList(); }
+    else if(a==="bulk-add"){ bulkAdd(); }
     else if(a==="cloud-in"){ if(window.VocabCloud) window.VocabCloud.signIn(); }
     else if(a==="cloud-out"){ if(window.VocabCloud) window.VocabCloud.signOut(); }
     else if(a==="export"){ exportCsv(); }
@@ -627,11 +688,53 @@
     if(e.target && e.target.id==="tpInput" && e.key==="Enter"){
       e.preventDefault();
       if(tpDone || !tpDeck.length) return;
-      if(!tpStart) tpStart=Date.now();
+      tpBegin();
       tpMarkWrong();
       tpNext(e.target);
     }
   });
+
+  /* ---------- bulk add ---------- */
+  function parseBulkLine(line){
+    var parts;
+    if(line.indexOf("\t")>=0) parts=line.split("\t");
+    else if(line.indexOf("=")>=0) parts=line.split("=");
+    else if(line.indexOf(",")>=0) parts=line.split(",");
+    else if(line.indexOf(" - ")>=0) parts=line.split(" - ");
+    else parts=[line];
+    var w=(parts[0]||"").trim();
+    if(!w) return null;
+    return { word:w, meaning:(parts[1]||"").trim(), pos:(parts[2]||"").trim() };
+  }
+
+  function bulkAdd(){
+    var ta = document.getElementById("bulk");
+    if(!ta) return;
+    var lines = ta.value.split(/\r?\n/);
+    var have = {};
+    words.forEach(function(x){ have[x.word.toLowerCase().trim()]=1; });
+    var added=0, skipped=0, base=Date.now();
+    lines.forEach(function(line){
+      var r = parseBulkLine(line.trim());
+      if(!r) return;
+      var key = r.word.toLowerCase();
+      if(have[key]){ skipped++; return; }
+      have[key]=1;
+      var nw = { id:uid(), word:r.word, meaning:r.meaning, pos:r.pos, example:"",
+        status:"new", createdAt:base-added, updatedAt:Date.now() };
+      words.push(nw);
+      cloudUpsert(nw);
+      added++;
+    });
+    var keep = added ? "" : ta.value;
+    bulkMsg = added
+      ? ("✓ เพิ่มแล้ว "+added+" คำ"+(skipped ? " · ข้ามคำซ้ำ "+skipped+" คำ" : ""))
+      : (skipped ? "คำทั้งหมดมีอยู่แล้ว ("+skipped+" คำ)" : "ไม่พบคำศัพท์ในข้อความที่วาง");
+    if(added){ save(); } else { renderList(); }
+    bulkMsg = "";
+    var ta2 = document.getElementById("bulk");
+    if(ta2 && keep) ta2.value = keep;
+  }
 
   /* ---------- cloud sync bridge (Firebase) ---------- */
   var cloudUser = null;
