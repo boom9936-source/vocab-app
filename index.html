@@ -180,6 +180,8 @@
   var revIdx = 0, revFlip = false;
   var confirmId = null;
   var bulkOpen = false, bulkMsg = "";
+  var catFilter = "all", listLimit = 100;
+  var revCat = "all", tpCat = "all", lsCat = "all";
 
   function load(){ try{ return JSON.parse(localStorage.getItem(KEY)) || []; }catch(e){ return []; } }
   function save(){ try{ localStorage.setItem(KEY, JSON.stringify(words)); }catch(e){} renderCount(); render(); }
@@ -194,6 +196,25 @@
     var c = {all:words.length,new:0,learning:0,mastered:0};
     words.forEach(function(w){ c[w.status]=(c[w.status]||0)+1; });
     return c;
+  }
+
+  /* ---------- categories ---------- */
+  function cats(){
+    var s = {};
+    words.forEach(function(w){ if(w.cat) s[w.cat]=1; });
+    return Object.keys(s).sort();
+  }
+  function catMatch(w, f){ return f==="all" ? true : (f==="none" ? !w.cat : w.cat===f); }
+  function catPills(cur, action){
+    var cs = cats();
+    if(!cs.length) return "";
+    var html = '<button class="pill'+(cur==="all"?" on":"")+'" data-action="'+action+'" data-c="all">ทุกหมวด</button>';
+    cs.forEach(function(c){ html += '<button class="pill'+(cur===c?" on":"")+'" data-action="'+action+'" data-c="'+esc(c)+'">'+esc(c)+'</button>'; });
+    html += '<button class="pill'+(cur==="none"?" on":"")+'" data-action="'+action+'" data-c="none">ไม่มีหมวด</button>';
+    return '<div class="pl-set"><div class="pl-row-label">หมวด</div><div class="pills">'+html+'</div></div>';
+  }
+  function catListHtml(){
+    return '<datalist id="catList">'+cats().map(function(c){ return '<option value="'+esc(c)+'">'; }).join("")+'</datalist>';
   }
 
   function render(){
@@ -224,18 +245,22 @@
           '</select>'+
           '<input id="ex" placeholder="ประโยคตัวอย่าง (ไม่บังคับ)" />'+
         '</div>'+
+        '<input id="cat" list="catList" placeholder="หมวด (ไม่บังคับ เช่น สำนวน, วลี, นิทาน)" style="margin-top:8px" />'+
+        catListHtml()+
         '<button class="btn btn-primary" data-action="add">+ เพิ่มคำศัพท์</button>'+
       '</div>'+
       '<p class="bulk-toggle"><a data-action="bulk-toggle">'+(bulkOpen?"▾ ซ่อนการเพิ่มทีละหลายคำ":"▸ เพิ่มทีละหลายคำ (จากหนังสือ/รายการ)")+'</a></p>'+
       (bulkOpen ?
         '<div class="card" style="margin-top:8px">'+
           '<textarea id="bulk" rows="6" placeholder="บรรทัดละ 1 คำ เช่น&#10;apple = แอปเปิ้ล&#10;run = วิ่ง = v.&#10;give up = ยอมแพ้ = phrase"></textarea>'+
+          '<input id="bulkCat" list="catList" placeholder="หมวดของชุดนี้ (ไม่บังคับ เช่น สำนวน)" style="margin-top:8px" />'+
           '<button class="btn btn-primary" data-action="bulk-add">+ เพิ่มทั้งหมด</button>'+
           (bulkMsg ? '<p class="bulk-hint" style="color:var(--emerald-tx);font-weight:600">'+esc(bulkMsg)+'</p>' : '')+
           '<p class="bulk-hint">รูปแบบ: คำศัพท์ = ความหมาย = ชนิดคำ (ชนิดคำไม่บังคับ) · ใช้ = หรือ , หรือ Tab คั่นก็ได้ · คำที่มีอยู่แล้วจะถูกข้ามให้อัตโนมัติ</p>'+
         '</div>' : '')+
       '<div class="search"><input id="search" placeholder="ค้นหาคำศัพท์หรือความหมาย…" value="'+esc(query)+'" /></div>'+
       '<div class="chips" id="chips"></div>'+
+      '<div class="chips" id="catchips"></div>'+
       '<div id="list" class="list"></div>'+
       (words.length ? '<button class="btn btn-ghost" data-action="export">ส่งออก CSV</button>' : '');
     renderListArea();
@@ -248,9 +273,22 @@
       return '<button class="chip'+(filter===d[0]?" on":"")+'" data-action="filter" data-f="'+d[0]+'">'+d[1]+' <span class="n">'+(c[d[0]]||0)+'</span></button>';
     }).join("");
 
+    var cs = cats();
+    var cc = document.getElementById("catchips");
+    if(cc){
+      if(!cs.length){ cc.innerHTML = ""; }
+      else {
+        var h = '<button class="chip'+(catFilter==="all"?" on":"")+'" data-action="cat-filter" data-c="all">ทุกหมวด</button>';
+        cs.forEach(function(cn){ h += '<button class="chip'+(catFilter===cn?" on":"")+'" data-action="cat-filter" data-c="'+esc(cn)+'">'+esc(cn)+'</button>'; });
+        h += '<button class="chip'+(catFilter==="none"?" on":"")+'" data-action="cat-filter" data-c="none">ไม่มีหมวด</button>';
+        cc.innerHTML = h;
+      }
+    }
+
     var q = query.trim().toLowerCase();
     var rows = words
       .filter(function(w){ return filter==="all"?true:w.status===filter; })
+      .filter(function(w){ return catMatch(w, catFilter); })
       .filter(function(w){ return !q ? true : (w.word.toLowerCase().indexOf(q)>=0 || (w.meaning||"").toLowerCase().indexOf(q)>=0); })
       .sort(function(a,b){ return b.createdAt - a.createdAt; });
 
@@ -259,7 +297,10 @@
       list.innerHTML = '<div class="empty">'+(words.length?"ไม่พบคำศัพท์ที่ตรงกับเงื่อนไข":"ยังไม่มีคำศัพท์ — เพิ่มคำแรกของคุณด้านบนได้เลย")+'</div>';
       return;
     }
-    list.innerHTML = rows.map(function(w){
+    var more = rows.length > listLimit
+      ? '<button class="btn btn-ghost" style="margin-top:0" data-action="more">แสดงอีก '+(rows.length-listLimit)+' คำ</button>'
+      : '';
+    list.innerHTML = rows.slice(0, listLimit).map(function(w){
       var s = STATUS[w.status]||STATUS["new"];
       var actions = (confirmId===w.id)
         ? '<span style="color:var(--muted)">ลบคำนี้?</span> <button class="del-red" data-action="del-yes" data-id="'+w.id+'">ลบ</button> <button class="del" data-action="del-no">ยกเลิก</button>'
@@ -267,7 +308,7 @@
       return '<div class="card">'+
         '<div class="word">'+
           '<div style="min-width:0;flex:1">'+
-            '<div><span class="en">'+esc(w.word)+'</span>'+(w.pos?'<span class="pos">'+esc(w.pos)+'</span>':'')+'</div>'+
+            '<div><span class="en">'+esc(w.word)+'</span>'+(w.pos?'<span class="pos">'+esc(w.pos)+'</span>':'')+(w.cat?'<span class="pos">· '+esc(w.cat)+'</span>':'')+'</div>'+
             (w.meaning?'<div class="mean">'+esc(w.meaning)+'</div>':'')+
             (w.example?'<div class="ex">'+esc(w.example)+'</div>':'')+
           '</div>'+
@@ -278,11 +319,11 @@
         '</div>'+
         '<div class="row-actions">'+actions+'</div>'+
       '</div>';
-    }).join("");
+    }).join("") + more;
   }
 
   /* ---------- REVIEW ---------- */
-  function deck(){ return words.filter(function(w){ return w.status!=="mastered"; }); }
+  function deck(){ return words.filter(function(w){ return w.status!=="mastered" && catMatch(w, revCat); }); }
 
   function renderReview(){
     if(words.length===0){
@@ -290,7 +331,7 @@
     }
     var d = deck();
     if(d.length===0){
-      root.innerHTML = '<div class="done"><h2>เก่งมาก! 🎉</h2><p>คุณจำคำศัพท์ได้ครบทุกคำแล้ว</p></div>'; return;
+      root.innerHTML = '<div class="done"><h2>เก่งมาก! 🎉</h2><p>คุณจำคำศัพท์'+(revCat==="all"?"":"ในหมวดนี้")+'ได้ครบทุกคำแล้ว</p></div>'+catPills(revCat,"rev-cat"); return;
     }
     if(revIdx >= d.length) revIdx = 0;
     var card = d[revIdx];
@@ -305,7 +346,8 @@
         '<button class="btn btn-forgot" data-action="forgot">ยังไม่จำ</button>'+
         '<button class="btn btn-known" data-action="known">จำได้ ✓</button>'+
       '</div>'+
-      '<p class="rev-note">“จำได้” จะเลื่อนคำขึ้นทีละขั้น: ใหม่ → กำลังจำ → จำได้แล้ว</p>';
+      '<p class="rev-note">“จำได้” จะเลื่อนคำขึ้นทีละขั้น: ใหม่ → กำลังจำ → จำได้แล้ว</p>'+
+      catPills(revCat,"rev-cat");
   }
 
   function reviewNext(status){
@@ -375,7 +417,7 @@
 
   var lsPlaying=false, lsToken=0, lsIdx=0, lsSet="all", lsRate=0.9, lsThai=true;
 
-  function lsDeck(){ return lsSet==="all" ? words.slice() : words.filter(function(w){ return w.status===lsSet; }); }
+  function lsDeck(){ return words.filter(function(w){ return (lsSet==="all" || w.status===lsSet) && catMatch(w, lsCat); }); }
   function wait(ms){ return new Promise(function(r){ setTimeout(r,ms); }); }
   function pickVoice(pfx){ for(var i=0;i<voices.length;i++){ var L=(voices[i].lang||"").toLowerCase(); if(L.indexOf(pfx)===0) return voices[i]; } return null; }
 
@@ -465,6 +507,7 @@
       '</div>'+
       '<div class="pl-set"><div class="pl-row-label">อ่านชุดไหน</div><div class="pills">'+
         setBtn("all","ทั้งหมด")+setBtn("learning","กำลังจำ")+setBtn("new","ใหม่")+'</div></div>'+
+      catPills(lsCat,"ls-cat")+
       '<div class="pl-set"><div class="pl-row-label">ความเร็ว</div><div class="pills">'+
         spdBtn(0.7,"ช้า")+spdBtn(0.9,"ปกติ")+spdBtn(1.1,"เร็ว")+'</div></div>'+
       '<div class="pl-set"><div class="pills"><button class="pill'+(lsThai?" on":"")+'" data-action="ls-thai">'+(lsThai?"✓ ":"")+'อ่านคำแปลไทยด้วย</button></div></div>'+
@@ -477,7 +520,7 @@
       tpTimeLimit=0, tpEndsAt=0, tpTimer=null, tpWordsDone=0, tpFinalWpm=0;
 
   function shuffle(a){ for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)), t=a[i]; a[i]=a[j]; a[j]=t; } return a; }
-  function tpFilter(){ return tpSet==="all" ? words.slice() : words.filter(function(w){ return w.status===tpSet; }); }
+  function tpFilter(){ return words.filter(function(w){ return (tpSet==="all" || w.status===tpSet) && catMatch(w, tpCat); }); }
   function tpInit(){ tpStopTimer(); tpDeck=shuffle(tpFilter()); tpIdx=0; tpPrev=""; tpStart=0; tpKeys=0; tpErr=0; tpChars=0; tpDone=false; tpWrong=[]; tpCurWrong=false; tpEndsAt=0; tpWordsDone=0; tpFinalWpm=0; }
   function tpWpm(){ if(!tpStart) return 0; var m=(Date.now()-tpStart)/60000; return m>0 ? Math.round((tpChars/5)/m) : 0; }
   function tpAcc(){ return tpKeys ? Math.round((tpKeys-tpErr)/tpKeys*100) : 100; }
@@ -571,6 +614,7 @@
     var picker =
       '<div class="pl-set"><div class="pl-row-label">ฝึกชุดไหน</div><div class="pills">'+
         setBtn("learning","กำลังจำ")+setBtn("new","ใหม่")+setBtn("all","ทั้งหมด")+'</div></div>'+
+      catPills(tpCat,"tp-cat")+
       '<div class="pl-set"><div class="pl-row-label">จับเวลา</div><div class="pills">'+
         timeBtn(0,"ไม่จับเวลา")+timeBtn(30,"30 วิ")+timeBtn(60,"1 นาที")+timeBtn(120,"2 นาที")+'</div></div>'+
       '<div class="pl-set"><div class="pills"><button class="pill'+(tpSpeak?" on":"")+'" data-action="tp-speak">'+(tpSpeak?"✓ ":"")+'อ่านออกเสียงเมื่อขึ้นคำใหม่</button></div></div>';
@@ -630,12 +674,23 @@
         meaning:document.getElementById("m").value.trim(),
         pos:document.getElementById("pos").value,
         example:document.getElementById("ex").value.trim(),
+        cat:document.getElementById("cat").value.trim(),
         status:"new", createdAt:Date.now(), updatedAt:Date.now() };
       words.unshift(nw);
       cloudUpsert(nw);
       save();
     }
-    else if(a==="filter"){ filter = t.getAttribute("data-f"); renderListArea(); }
+    else if(a==="filter"){ filter = t.getAttribute("data-f"); listLimit=100; renderListArea(); }
+    else if(a==="cat-filter"){ catFilter = t.getAttribute("data-c"); listLimit=100; renderListArea(); }
+    else if(a==="more"){ listLimit += 200; renderListArea(); }
+    else if(a==="rev-cat"){ revCat = t.getAttribute("data-c"); revIdx=0; revFlip=false; renderReview(); }
+    else if(a==="tp-cat"){ tpCat = t.getAttribute("data-c"); tpInit(); renderType(); }
+    else if(a==="ls-cat"){
+      lsCat = t.getAttribute("data-c"); lsIdx=0;
+      var wasP2 = lsPlaying; stopSpeak();
+      renderListen();
+      if(wasP2){ lsPlaying=true; lsPlay(); }
+    }
     else if(a==="cycle"){
       var id=t.getAttribute("data-id"), i=words.findIndex(function(x){return x.id===id;});
       if(i>=0){ words[i].status = ORDER[(ORDER.indexOf(words[i].status)+1)%3]; words[i].updatedAt = Date.now(); cloudUpsert(words[i]); save(); }
@@ -680,7 +735,7 @@
 
   document.addEventListener("input", function(e){
     if(!e.target) return;
-    if(e.target.id==="search"){ query = e.target.value; renderListArea(); }
+    if(e.target.id==="search"){ query = e.target.value; listLimit=100; renderListArea(); }
     else if(e.target.id==="tpInput"){ tpType(e.target); }
   });
 
@@ -720,7 +775,8 @@
       var key = r.word.toLowerCase();
       if(have[key]){ skipped++; return; }
       have[key]=1;
-      var nw = { id:uid(), word:r.word, meaning:r.meaning, pos:r.pos, example:"",
+      var bc = document.getElementById("bulkCat") ? document.getElementById("bulkCat").value.trim() : "";
+      var nw = { id:uid(), word:r.word, meaning:r.meaning, pos:r.pos, example:"", cat:bc,
         status:"new", createdAt:base-added, updatedAt:Date.now() };
       words.push(nw);
       cloudUpsert(nw);
@@ -823,7 +879,7 @@ if (firebaseConfig && location.protocol === "file:") {
 
     function clean(w){
       return { id:String(w.id), word:String(w.word||""), meaning:String(w.meaning||""), pos:String(w.pos||""),
-        example:String(w.example||""), status:String(w.status||"new"),
+        example:String(w.example||""), cat:String(w.cat||""), status:String(w.status||"new"),
         createdAt:Number(w.createdAt)||Date.now(), updatedAt:Number(w.updatedAt||w.createdAt)||Date.now() };
     }
 
