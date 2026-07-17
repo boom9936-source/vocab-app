@@ -111,6 +111,8 @@
   .pill.on{border-color:var(--indigo);background:var(--indigo);color:#fff}
   .spk{border:1px solid var(--border);background:#fff;border-radius:999px;width:34px;height:34px;font-size:15px;cursor:pointer;flex:none;padding:0}
   .spk:active{transform:scale(.94)}
+  .done-btn{border:1px solid var(--emerald-bd);background:var(--emerald-bg);color:var(--emerald-tx);border-radius:999px;padding:4px 10px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;flex:none}
+  .done-btn:active{transform:scale(.95)}
 
   /* typing practice */
   .tp-mean{font-size:20px;font-weight:600;color:var(--ink);min-height:26px;margin-top:4px}
@@ -330,7 +332,10 @@
             (w.example?'<div class="ex">'+esc(w.example)+'</div>':'')+
           '</div>'+
           '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;flex:none">'+
-            '<button class="status '+s.cls+'" data-action="cycle" data-id="'+w.id+'"><span class="dot"></span>'+s.label+'</button>'+
+            '<div style="display:flex;gap:6px;align-items:center">'+
+              (w.status!=="mastered" ? '<button class="done-btn" data-action="quick-done" data-id="'+w.id+'" title="ติ๊กว่าจำได้แล้ว">✓ จำได้</button>' : '')+
+              '<button class="status '+s.cls+'" data-action="cycle" data-id="'+w.id+'"><span class="dot"></span>'+s.label+'</button>'+
+            '</div>'+
             '<button class="spk" data-action="speak" data-id="'+w.id+'" title="อ่านออกเสียง">🔊</button>'+
           '</div>'+
         '</div>'+
@@ -712,6 +717,10 @@
     else if(a==="cycle"){
       var id=t.getAttribute("data-id"), i=words.findIndex(function(x){return x.id===id;});
       if(i>=0){ words[i].status = ORDER[(ORDER.indexOf(words[i].status)+1)%3]; words[i].updatedAt = Date.now(); cloudUpsert(words[i]); save(); }
+    }
+    else if(a==="quick-done"){
+      var qid=t.getAttribute("data-id"), qi=words.findIndex(function(x){return x.id===qid;});
+      if(qi>=0){ words[qi].status="mastered"; words[qi].updatedAt=Date.now(); cloudUpsert(words[qi]); save(); }
     }
     else if(a==="del-ask"){ confirmId=t.getAttribute("data-id"); renderListArea(); }
     else if(a==="del-no"){ confirmId=null; renderListArea(); }
