@@ -538,12 +538,29 @@
 
   /* ---------- TYPE PRACTICE ---------- */
   var tpSet="learning", tpDeck=[], tpIdx=0, tpPrev="", tpStart=0,
-      tpKeys=0, tpErr=0, tpChars=0, tpDone=false, tpWrong=[], tpCurWrong=false, tpSpeak=false,
+      tpKeys=0, tpErr=0, tpChars=0, tpDone=false, tpWrong=[], tpCurWrong=false, tpSpeak=false, tpThai=true,
       tpTimeLimit=0, tpEndsAt=0, tpTimer=null, tpWordsDone=0, tpFinalWpm=0;
+
+  /* จำเวลาที่แต่ละคำถูกฝึกพิมพ์ล่าสุด เพื่อวนให้ครบทุกคำก่อนเริ่มซ้ำ */
+  var TKEY = "vocab-typed-v1";
+  var typedAt = {};
+  try{ typedAt = JSON.parse(localStorage.getItem(TKEY)) || {}; }catch(e){ typedAt = {}; }
+  function tpMark(id){ typedAt[id] = Date.now(); try{ localStorage.setItem(TKEY, JSON.stringify(typedAt)); }catch(e){} }
 
   function shuffle(a){ for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)), t=a[i]; a[i]=a[j]; a[j]=t; } return a; }
   function tpFilter(){ return words.filter(function(w){ return (tpSet==="all" || w.status===tpSet) && catMatch(w, tpCat); }); }
-  function tpInit(){ tpStopTimer(); tpDeck=shuffle(tpFilter()); tpIdx=0; tpPrev=""; tpStart=0; tpKeys=0; tpErr=0; tpChars=0; tpDone=false; tpWrong=[]; tpCurWrong=false; tpEndsAt=0; tpWordsDone=0; tpFinalWpm=0; }
+  function tpBuildDeck(){
+    var arr = shuffle(tpFilter());
+    arr.sort(function(a,b){ return (typedAt[a.id]||0) - (typedAt[b.id]||0); });
+    return arr;
+  }
+  function tpInit(){ tpStopTimer(); tpDeck=tpBuildDeck(); tpIdx=0; tpPrev=""; tpStart=0; tpKeys=0; tpErr=0; tpChars=0; tpDone=false; tpWrong=[]; tpCurWrong=false; tpEndsAt=0; tpWordsDone=0; tpFinalWpm=0; }
+
+  function tpSay(c){
+    if(!tpSpeak || !synth || !c) return;
+    try{ synth.cancel(); }catch(e){}
+    speakOne(c.word,"en",1).then(function(){ if(tpThai && c.meaning) return speakOne(c.meaning,"th",1); });
+  }
   function tpWpm(){ if(!tpStart) return 0; var m=(Date.now()-tpStart)/60000; return m>0 ? Math.round((tpChars/5)/m) : 0; }
   function tpAcc(){ return tpKeys ? Math.round((tpKeys-tpErr)/tpKeys*100) : 100; }
   function tpMarkWrong(){ if(!tpCurWrong){ tpCurWrong=true; tpWrong.push(tpDeck[tpIdx]); } }
@@ -582,11 +599,11 @@
   function tpNext(inp){
     tpIdx++; tpPrev=""; tpCurWrong=false; if(inp) inp.value="";
     if(tpIdx>=tpDeck.length){
-      if(tpTimeLimit>0 && tpStart){ shuffle(tpDeck); tpIdx=0; }
+      if(tpTimeLimit>0 && tpStart){ tpDeck=tpBuildDeck(); tpIdx=0; }
       else { tpFinish(); return; }
     }
     tpPaint();
-    if(tpSpeak) speakOne(tpDeck[tpIdx].word,"en",1);
+    tpSay(tpDeck[tpIdx]);
   }
 
   function tpType(inp){
@@ -600,7 +617,7 @@
       }
     }
     tpPrev=val;
-    if(val.toLowerCase()===w.toLowerCase()){ tpChars+=w.length+1; tpWordsDone++; tpNext(inp); }
+    if(val.toLowerCase()===w.toLowerCase()){ tpChars+=w.length+1; tpWordsDone++; tpMark(tpDeck[tpIdx].id); tpNext(inp); }
     else tpPaint();
   }
 
@@ -639,7 +656,10 @@
       catPills(tpCat,"tp-cat")+
       '<div class="pl-set"><div class="pl-row-label">จับเวลา</div><div class="pills">'+
         timeBtn(0,"ไม่จับเวลา")+timeBtn(30,"30 วิ")+timeBtn(60,"1 นาที")+timeBtn(120,"2 นาที")+'</div></div>'+
-      '<div class="pl-set"><div class="pills"><button class="pill'+(tpSpeak?" on":"")+'" data-action="tp-speak">'+(tpSpeak?"✓ ":"")+'อ่านออกเสียงเมื่อขึ้นคำใหม่</button></div></div>';
+      '<div class="pl-set"><div class="pills">'+
+        '<button class="pill'+(tpSpeak?" on":"")+'" data-action="tp-speak">'+(tpSpeak?"✓ ":"")+'อ่านออกเสียงเมื่อขึ้นคำใหม่</button>'+
+        (tpSpeak ? '<button class="pill'+(tpThai?" on":"")+'" data-action="tp-thai">'+(tpThai?"✓ ":"")+'อ่านคำแปลไทยด้วย</button>' : '')+
+      '</div></div>';
 
     if(tpDone){
       var wrongHtml = tpWrong.length
@@ -748,6 +768,7 @@
     else if(a==="tp-set"){ tpSet=t.getAttribute("data-s"); tpInit(); renderType(); }
     else if(a==="tp-time"){ tpTimeLimit=parseInt(t.getAttribute("data-t"),10)||0; tpInit(); renderType(); }
     else if(a==="tp-speak"){ tpSpeak=!tpSpeak; renderType(); }
+    else if(a==="tp-thai"){ tpThai=!tpThai; renderType(); }
     else if(a==="tp-again"){ tpInit(); renderType(); }
     else if(a==="tp-focus"){ var ti=document.getElementById("tpInput"); if(ti) ti.focus(); }
     else if(a==="bulk-toggle"){ bulkOpen=!bulkOpen; bulkMsg=""; renderList(); }
@@ -772,6 +793,7 @@
       if(tpDone || !tpDeck.length) return;
       tpBegin();
       tpMarkWrong();
+      tpMark(tpDeck[tpIdx].id);
       tpNext(e.target);
     }
   });
