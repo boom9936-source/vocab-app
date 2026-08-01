@@ -270,7 +270,7 @@
           '<input id="bulkCat" list="catList" placeholder="หมวดของชุดนี้ (ไม่บังคับ เช่น สำนวน)" style="margin-top:8px" />'+
           '<button class="btn btn-primary" data-action="bulk-add">+ เพิ่มทั้งหมด</button>'+
           (bulkMsg ? '<p class="bulk-hint" style="color:var(--emerald-tx);font-weight:600">'+esc(bulkMsg)+'</p>' : '')+
-          '<p class="bulk-hint">รูปแบบ: คำศัพท์ = ความหมาย = ชนิดคำ (ชนิดคำไม่บังคับ) · ใช้ = หรือ , หรือ Tab คั่นก็ได้ · คำที่มีอยู่แล้วจะถูกข้ามให้อัตโนมัติ</p>'+
+          '<p class="bulk-hint">รูปแบบ: คำศัพท์ = ความหมาย = ชนิดคำ = ประโยคตัวอย่าง = หมวด (ตั้งแต่ชนิดคำเป็นต้นไปไม่บังคับ หมวดในบรรทัดจะชนะช่องหมวดด้านบน) · คำที่มีอยู่แล้วจะถูกข้ามให้อัตโนมัติ</p>'+
         '</div>' : '')+
       '<div class="search"><input id="search" placeholder="ค้นหาคำศัพท์หรือความหมาย…" value="'+esc(query)+'" /></div>'+
       '<div class="chips" id="chips"></div>'+
@@ -1145,7 +1145,8 @@
     else parts=[line];
     var w=(parts[0]||"").trim();
     if(!w) return null;
-    return { word:w, meaning:(parts[1]||"").trim(), pos:(parts[2]||"").trim() };
+    return { word:w, meaning:(parts[1]||"").trim(), pos:(parts[2]||"").trim(),
+             example:(parts[3]||"").trim(), cat:(parts[4]||"").trim() };
   }
 
   function bulkAdd(){
@@ -1162,7 +1163,7 @@
       if(have[key]){ skipped++; return; }
       have[key]=1;
       var bc = document.getElementById("bulkCat") ? document.getElementById("bulkCat").value.trim() : "";
-      var nw = { id:uid(), word:r.word, meaning:r.meaning, pos:r.pos, example:"", cat:bc,
+      var nw = { id:uid(), word:r.word, meaning:r.meaning, pos:r.pos, example:r.example||"", cat:(r.cat||bc),
         status:"new", createdAt:base-added, updatedAt:Date.now() };
       words.push(nw);
       cloudUpsert(nw);
