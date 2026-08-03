@@ -28,7 +28,7 @@
   .count{color:var(--muted2);font-size:14px}
 
   .tabs{display:flex;gap:4px;background:#fff;padding:4px;border-radius:12px;box-shadow:0 1px 2px rgba(0,0,0,.04);border:1px solid var(--border);margin-bottom:20px}
-  .tab{flex:1;border:0;background:transparent;border-radius:8px;padding:8px 0;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;font-family:inherit}
+  .tab{flex:1;border:0;background:transparent;border-radius:8px;padding:8px 0;font-size:11px;font-weight:600;color:var(--muted);cursor:pointer;font-family:inherit}
   .tab.active{background:var(--indigo);color:#fff}
 
   .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:0 1px 2px rgba(0,0,0,.03)}
@@ -141,6 +141,14 @@
   .bulk-toggle a{color:var(--indigo);cursor:pointer}
   .bulk-hint{font-size:12px;color:var(--muted2);margin:8px 0 0}
 
+  /* stories */
+  .st-text{font-family:Georgia,serif;font-size:19px;line-height:1.9;color:var(--ink);text-align:left}
+  .st-w{cursor:pointer;border-bottom:1px dotted #a5b4fc;border-radius:3px}
+  .st-w:active{background:var(--indigo-l)}
+  .st-th{font-size:15px;line-height:1.8;color:#475569;text-align:left;margin-top:14px;border-top:1px dashed var(--border);padding-top:12px}
+  .st-item{cursor:pointer}
+  .st-item:active{background:var(--indigo-l)}
+
   /* cloud sync */
   .sync{display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--indigo-l);border:1px solid #c7d2fe;border-radius:12px;padding:8px 12px;font-size:13px;color:var(--indigo-d);margin-bottom:12px}
   .sync button{border:0;background:var(--indigo);color:#fff;border-radius:8px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;flex:none}
@@ -165,6 +173,7 @@
     <button class="tab" data-action="tab" data-v="quiz">ทดสอบ</button>
     <button class="tab" data-action="tab" data-v="type">ฝึกพิมพ์</button>
     <button class="tab" data-action="tab" data-v="listen">ฟัง</button>
+    <button class="tab" data-action="tab" data-v="story">นิทาน</button>
     <button class="tab" data-action="tab" data-v="stats">สถิติ</button>
   </div>
 
@@ -236,6 +245,7 @@
     else if(view==="quiz") renderQuiz();
     else if(view==="type") renderType();
     else if(view==="listen") renderListen();
+    else if(view==="story") renderStory();
     else renderStats();
   }
 
@@ -302,7 +312,7 @@
 
     var sc = document.getElementById("sortchips");
     if(sc){
-      var sortDefs = [["newest","ใหม่→เก่า"],["oldest","เก่า→ใหม่"],["az","A→Z"],["status","ยังไม่จำขึ้นก่อน"]];
+      var sortDefs = [["newest","ใหม่→เก่า"],["oldest","เก่า→ใหม่"],["az","A→Z"],["status","ยังไม่จำขึ้นก่อน"],["freq","ใช้บ่อยก่อน"]];
       sc.innerHTML = '<span style="font-size:12px;color:var(--muted2);align-self:center">เรียง:</span>'+sortDefs.map(function(d){
         return '<button class="chip'+(sortBy===d[0]?" on":"")+'" data-action="sort" data-s="'+d[0]+'">'+d[1]+'</button>';
       }).join("");
@@ -319,6 +329,10 @@
         if(sortBy==="status"){
           var d = ORDER.indexOf(a.status) - ORDER.indexOf(b.status);
           return d !== 0 ? d : b.createdAt - a.createdAt;
+        }
+        if(sortBy==="freq"){
+          var f = (b.freq||0) - (a.freq||0);
+          return f !== 0 ? f : b.createdAt - a.createdAt;
         }
         return b.createdAt - a.createdAt;
       });
@@ -339,7 +353,7 @@
       return '<div class="card">'+
         '<div class="word">'+
           '<div style="min-width:0;flex:1">'+
-            '<div><span class="en">'+esc(w.word)+'</span>'+(w.pos?'<span class="pos">'+esc(w.pos)+'</span>':'')+(w.cat?'<span class="pos">· '+esc(w.cat)+'</span>':'')+'</div>'+
+            '<div><span class="en">'+esc(w.word)+'</span>'+(w.pos?'<span class="pos">'+esc(w.pos)+'</span>':'')+(w.cat?'<span class="pos">· '+esc(w.cat)+'</span>':'')+(w.freq?'<span class="pos">· ใช้บ่อย '+w.freq+'</span>':'')+'</div>'+
             (w.meaning?'<div class="mean">'+esc(w.meaning)+'</div>':'')+
             (w.example?'<div class="ex">'+esc(w.example)+'</div>':'')+
           '</div>'+
@@ -756,7 +770,7 @@
   /* ---------- QUIZ (ทดสอบความจำ + spaced repetition) ---------- */
   var qzCat="all", qzSize=10;
   var qzRound=[], qzIdx=0, qzPhase="idle", qzCorrect=0, qzWrongL=[], qzPromoted=[], qzDemoted=[],
-      qzTimer=null, qzPicked=-1, qzFb=null, qzTyped="", qzReadyAt=0;
+      qzTimer=null, qzPicked=-1, qzFb=null, qzTyped="", qzReadyAt=0, qzMode="quiz";
 
   function qzNorm(s){
     return String(s==null?"":s).toLowerCase().replace(/’/g,"'").replace(/\s+/g," ").trim().replace(/[.!?]+$/,"");
@@ -850,6 +864,7 @@
     var ws = words.filter(function(w){ return w.meaning && catMatch(w,qzCat); });
     var nonM = ws.filter(function(w){ return w.status!=="mastered"; });
     var main = shuffle(nonM.filter(function(w){ return (w.qDue||0)<=now; }));
+    main.sort(function(a,b){ return (b.freq||0)-(a.freq||0); }); /* คำใช้บ่อยได้ทดสอบก่อน */
     if(force){
       var extra = shuffle(nonM.filter(function(w){ return (w.qDue||0)>now; }));
       extra.sort(function(a,b){ return (a.qDue||0)-(b.qDue||0); });
@@ -899,7 +914,7 @@
   function qzReset(){
     if(qzTimer){ clearTimeout(qzTimer); qzTimer=null; }
     qzPhase="idle"; qzRound=[]; qzIdx=0; qzCorrect=0; qzWrongL=[]; qzPromoted=[]; qzDemoted=[];
-    qzPicked=-1; qzFb=null; qzTyped="";
+    qzPicked=-1; qzFb=null; qzTyped=""; qzMode="quiz";
   }
 
   function qzStart(force){
@@ -907,6 +922,32 @@
     qzRound = qzBuildRound(force);
     if(qzRound.length){ qzPhase="ask"; }
     renderQuiz();
+  }
+
+  /* ---------- เขียนตามคำบอก (dictation) ---------- */
+  function qzBuildDict(){
+    var ws = shuffle(words.filter(function(w){ return w.word && w.meaning && catMatch(w, qzCat); }));
+    ws.sort(function(a,b){ return (a.status==="mastered"?1:0) - (b.status==="mastered"?1:0); });
+    return ws.slice(0, qzSize).map(function(w){
+      return { id:w.id, word:w.word, meaning:w.meaning, pos:w.pos||"", type:"dict" };
+    });
+  }
+
+  function qzSpeakCurrent(){
+    var q = qzRound[qzIdx];
+    if(q && q.type==="dict" && synth && qzPhase==="ask"){
+      try{ synth.cancel(); }catch(e){}
+      speakOne(q.word, "en", 0.9);
+    }
+  }
+
+  function qzStartDict(){
+    qzReset();
+    qzMode = "dict";
+    qzRound = qzBuildDict();
+    if(qzRound.length){ qzPhase="ask"; }
+    renderQuiz();
+    qzSpeakCurrent();
   }
 
   function qzPickAnswer(i){
@@ -920,7 +961,7 @@
   function qzSubmitRecall(){
     if(qzPhase!=="ask" || Date.now() < qzReadyAt) return;
     var q = qzRound[qzIdx];
-    if(!q || q.type!=="recall") return;
+    if(!q || (q.type!=="recall" && q.type!=="dict")) return;
     var inp = document.getElementById("qzInput");
     var val = inp ? inp.value : "";
     if(!qzNorm(val)) return;
@@ -934,7 +975,7 @@
     qzPhase = "feedback";
     if(ok){ qzCorrect++; qzFb = {ok:true, msg: almost ? "✓ ถูกต้อง! (ผิดนิดเดียว ดูตัวสะกดเต็มด้านบน)" : "✓ ถูกต้อง!"}; }
     else { qzFb = {ok:false, msg: q.type==="mc" ? "✗ ยังไม่ถูก — คำตอบคือแถบสีเขียว" : "✗ ยังไม่ถูก — คำตอบคือด้านบน"+(qzTyped?" (คุณพิมพ์: "+qzTyped+")":"")}; }
-    qzApply(q, ok);
+    if(q.type!=="dict") qzApply(q, ok); /* เขียนตามคำบอกเป็นการซ้อม ไม่กระทบสถานะ/ตารางทดสอบ */
     renderQuiz();
     if(synth){ try{ synth.cancel(); }catch(e){} speakOne(q.word,"en",1); }
     if(ok){ qzTimer = setTimeout(qzNextQ, 1000); }
@@ -948,6 +989,7 @@
     if(qzIdx >= qzRound.length){ qzPhase="done"; }
     else { qzPhase="ask"; }
     renderQuiz();
+    qzSpeakCurrent();
   }
 
   function renderQuiz(){
@@ -977,6 +1019,7 @@
         '<button class="btn btn-ghost" data-action="qz-start-force" style="max-width:300px;margin:16px auto 0">ทดสอบล่วงหน้าเลย</button></div>';
     }
     root.innerHTML = head +
+      '<button class="btn btn-ghost" data-action="qz-dict" style="margin-top:12px">🎧 เขียนตามคำบอก — ฟังเสียงแล้วพิมพ์คำที่ได้ยิน</button>'+
       catPills(qzCat,"qz-cat") +
       '<div class="pl-set"><div class="pl-row-label">จำนวนข้อต่อรอบ</div><div class="pills">'+sizeBtn(10)+sizeBtn(20)+'</div></div>'+
       '<p class="rev-note">ตอบถูก (นับวันละครั้งต่อคำ) จะเลื่อนขั้นอัตโนมัติ: ถูกครั้งแรก → กำลังจำ · ถูกสะสม 3 วัน แล้วพิมพ์ตอบถูกอีกครั้ง → จำได้แล้ว · ตอบผิดเริ่มนับใหม่ · คำที่จำได้แล้วถูกสุ่มตรวจซ้ำเป็นระยะ (เว้น 1 → 3 → 7 → 14 วัน)</p>';
@@ -1000,6 +1043,21 @@
           return '<button class="'+cls+'" data-action="qz-pick" data-i="'+i+'"'+(fb?' disabled':'')+'>'+(i+1)+'. '+esc(c.t)+'</button>';
         }).join("")+
         '</div>'+fbLine+
+      '</div>';
+    } else if(q.type==="dict"){
+      body = '<div class="player">'+
+        '<div class="pl-label">ฟังเสียงแล้วพิมพ์คำที่ได้ยิน</div>'+
+        '<button class="pl-main" data-action="qz-hear" style="margin:16px auto 4px;display:block">🔊</button>'+
+        '<div style="font-size:12px;color:var(--muted2)">แตะเพื่อฟังซ้ำได้</div>'+
+        (fb
+          ? '<div class="pl-word" style="font-size:30px;margin-top:8px">'+esc(q.word)+'</div>'+
+            '<div class="tp-mean" style="font-size:18px;margin-top:2px">'+esc(q.meaning)+'</div>'+
+            '<div class="pl-pos">'+esc(q.pos)+'</div>'+fbLine
+          : '<input id="qzInput" class="tp-input" placeholder="พิมพ์คำที่ได้ยิน…" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" />'+
+            '<div class="rev-btns" style="max-width:340px;margin:14px auto 0">'+
+              '<button class="btn btn-forgot" data-action="qz-idk">ไม่รู้ / ข้าม</button>'+
+              '<button class="btn btn-known" data-action="qz-submit">ตอบ ✓</button>'+
+            '</div>')+
       '</div>';
     } else {
       body = '<div class="player">'+
@@ -1037,14 +1095,94 @@
       ? listCard('ตกกลับมาทบทวนใหม่', qzDemoted.map(function(x){ return '<span class="serif">'+esc(x)+'</span>'; }))
       : '';
     var moreDue = qzDueCount(qzCat);
+    var nextBtns = (qzMode==="dict")
+      ? '<button class="btn btn-primary" data-action="qz-dict">เขียนตามคำบอกอีกรอบ</button>'
+      : (moreDue>0 ? '<button class="btn btn-primary" data-action="qz-start">ทดสอบต่อ (เหลือครบกำหนด '+moreDue+' คำ)</button>' : '');
     root.innerHTML =
       '<div class="card stat-hero">'+
-        '<div style="color:var(--muted);font-size:14px">ผลการทดสอบ</div>'+
+        '<div style="color:var(--muted);font-size:14px">'+(qzMode==="dict"?"ผลการเขียนตามคำบอก":"ผลการทดสอบ")+'</div>'+
         '<div class="big">'+qzCorrect+'/'+total+'</div>'+
         '<div class="sub2">ตอบถูก '+pct+'%</div>'+
       '</div>'+wrongHtml+proHtml+demHtml+
-      (moreDue>0 ? '<button class="btn btn-primary" data-action="qz-start">ทดสอบต่อ (เหลือครบกำหนด '+moreDue+' คำ)</button>' : '')+
+      nextBtns+
       '<button class="btn btn-ghost" data-action="qz-home">กลับหน้าเริ่ม</button>';
+  }
+
+  /* ---------- STORIES (นิทาน) ---------- */
+  var SKEY = "vocab-stories-v1";
+  var stories = [];
+  try{ stories = JSON.parse(localStorage.getItem(SKEY)) || []; }catch(e){ stories = []; }
+  var storyIdx = -1, stShowTh = false, stWord = "", stMsg = "";
+
+  function setStories(arr){
+    stories = Array.isArray(arr) ? arr : [];
+    try{ localStorage.setItem(SKEY, JSON.stringify(stories)); }catch(e){}
+    if(view==="story") renderStory();
+  }
+
+  function stSentenceFor(word, en){
+    var sents = en.match(/[^.!?]+[.!?]?/g) || [en];
+    for(var i=0;i<sents.length;i++){
+      if(sents[i].toLowerCase().indexOf(word.toLowerCase())>=0) return sents[i].trim();
+    }
+    return "";
+  }
+
+  function stWordHtml(en){
+    return en.split(" ").map(function(tok){
+      var w = tok.replace(/^[^A-Za-z]+|[^A-Za-z']+$/g, "");
+      if(!w || w.length<2) return esc(tok);
+      return '<span class="st-w" data-action="st-word" data-w="'+esc(w.toLowerCase())+'">'+esc(tok)+'</span>';
+    }).join(" ");
+  }
+
+  function renderStory(){
+    if(!stories.length){
+      root.innerHTML =
+        '<div class="card">'+
+          '<div style="font-weight:700;color:var(--ink);margin-bottom:8px">ยังไม่มีข้อมูลนิทานในเครื่องนี้</div>'+
+          '<p style="font-size:13px;color:var(--muted);margin:0 0 10px">วางเนื้อหาจากไฟล์ stories.json ที่ได้รับ แล้วกดโหลด (ทำครั้งเดียว จะซิงก์ให้ทุกเครื่องที่ล็อกอิน)</p>'+
+          '<textarea id="stJson" rows="5" placeholder="วางข้อมูล stories.json ที่นี่"></textarea>'+
+          '<button class="btn btn-primary" data-action="st-import">โหลดนิทาน</button>'+
+          (stMsg?'<p class="bulk-hint" style="color:#b91c1c;font-weight:600">'+esc(stMsg)+'</p>':'')+
+        '</div>';
+      return;
+    }
+    if(storyIdx < 0 || storyIdx >= stories.length){
+      root.innerHTML =
+        '<p class="rev-note" style="margin:0 0 12px">นิทาน '+stories.length+' เรื่อง · แตะเรื่องเพื่ออ่าน · แตะคำศัพท์ในเรื่องเพื่อเพิ่มเข้าคลัง</p>'+
+        '<div class="list">'+stories.map(function(s, i){
+          return '<div class="card st-item" data-action="st-open" data-i="'+i+'">'+
+            '<span class="en" style="font-size:16px">'+s.n+'. '+esc(s.titleEn)+'</span>'+
+            '<div class="mean">'+esc(s.titleTh)+'</div></div>';
+        }).join("")+'</div>';
+      return;
+    }
+    var s = stories[storyIdx];
+    root.innerHTML =
+      '<button class="btn btn-ghost" style="margin:0 0 12px" data-action="st-back">← กลับไปรายการนิทาน</button>'+
+      '<div class="card">'+
+        '<div class="en" style="font-size:20px">'+esc(s.titleEn)+'</div>'+
+        '<div class="mean" style="margin-bottom:12px">'+esc(s.titleTh)+'</div>'+
+        '<div class="st-text">'+stWordHtml(s.en)+'</div>'+
+        (stShowTh ? '<div class="st-th">'+esc(s.th)+'</div>' : '')+
+        (stWord ? '<div class="card" style="margin-top:14px;background:var(--indigo-l)">'+
+          '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'+
+            '<span class="en">'+esc(stWord)+'</span>'+
+            '<input id="stMean" placeholder="ความหมาย (เว้นว่างได้)" style="flex:1;min-width:140px" />'+
+            '<button class="done-btn" data-action="st-add-confirm">+ เพิ่มเข้าคลัง</button>'+
+          '</div>'+
+          (stMsg?'<p class="bulk-hint" style="color:var(--emerald-tx);font-weight:600">'+esc(stMsg)+'</p>':'')+
+        '</div>' : (stMsg?'<p class="bulk-hint" style="color:var(--emerald-tx);font-weight:600">'+esc(stMsg)+'</p>':''))+
+        '<div class="rev-btns" style="margin-top:14px">'+
+          '<button class="btn btn-ghost" style="margin:0" data-action="st-listen">🔊 อ่านให้ฟัง</button>'+
+          '<button class="btn btn-ghost" style="margin:0" data-action="st-th">'+(stShowTh?"ซ่อนคำแปล":"แสดงคำแปลไทย")+'</button>'+
+        '</div>'+
+      '</div>'+
+      '<div class="rev-btns" style="margin-top:12px">'+
+        '<button class="btn btn-ghost" style="margin:0" data-action="st-prev"'+(storyIdx<=0?' disabled':'')+'>← เรื่องก่อน</button>'+
+        '<button class="btn btn-ghost" style="margin:0" data-action="st-next"'+(storyIdx>=stories.length-1?' disabled':'')+'>เรื่องถัดไป →</button>'+
+      '</div>';
   }
 
   /* ---------- events ---------- */
@@ -1133,6 +1271,7 @@
     }
     else if(a==="qz-start"){ qzStart(false); }
     else if(a==="qz-start-force"){ qzStart(true); }
+    else if(a==="qz-dict"){ qzStartDict(); }
     else if(a==="qz-home"){ qzReset(); renderQuiz(); }
     else if(a==="qz-cat"){ qzCat=t.getAttribute("data-c"); qzReset(); renderQuiz(); }
     else if(a==="qz-size"){ qzSize=parseInt(t.getAttribute("data-n"),10)||10; renderQuiz(); }
@@ -1150,6 +1289,50 @@
     else if(a==="tp-focus"){ var ti=document.getElementById("tpInput"); if(ti) ti.focus(); }
     else if(a==="bulk-toggle"){ bulkOpen=!bulkOpen; bulkMsg=""; renderList(); }
     else if(a==="bulk-add"){ bulkAdd(); }
+    else if(a==="st-import"){
+      var sj = document.getElementById("stJson");
+      try{
+        var arr = JSON.parse(sj.value);
+        if(!Array.isArray(arr) || !arr.length || !arr[0].titleEn || !arr[0].en) throw new Error("bad");
+        stMsg = "";
+        setStories(arr);
+        if(cloudUser && window.VocabCloud) window.VocabCloud.saveStories(arr);
+      }catch(err){ stMsg = "ข้อมูลไม่ถูกต้อง — ก๊อปทั้งไฟล์ stories.json มาวางอีกครั้ง"; renderStory(); }
+    }
+    else if(a==="st-open"){ storyIdx = parseInt(t.getAttribute("data-i"),10); stShowTh=false; stWord=""; stMsg=""; renderStory(); window.scrollTo(0,0); }
+    else if(a==="st-back"){ storyIdx = -1; stWord=""; stMsg=""; if(synth){ try{ synth.cancel(); }catch(e){} } renderStory(); }
+    else if(a==="st-prev"){ if(storyIdx>0){ storyIdx--; stShowTh=false; stWord=""; stMsg=""; renderStory(); window.scrollTo(0,0); } }
+    else if(a==="st-next"){ if(storyIdx<stories.length-1){ storyIdx++; stShowTh=false; stWord=""; stMsg=""; renderStory(); window.scrollTo(0,0); } }
+    else if(a==="st-th"){ stShowTh = !stShowTh; renderStory(); }
+    else if(a==="st-listen"){
+      var st = stories[storyIdx];
+      if(st && synth){ try{ synth.cancel(); }catch(e){} speakOne(st.en, "en", 0.9); }
+    }
+    else if(a==="st-word"){
+      stWord = t.getAttribute("data-w"); stMsg = "";
+      if(synth){ try{ synth.cancel(); }catch(e){} speakOne(stWord, "en", 0.9); }
+      renderStory();
+      var sm = document.getElementById("stMean"); if(sm) sm.focus();
+    }
+    else if(a==="st-add-confirm"){
+      var smv = document.getElementById("stMean");
+      var meanV = smv ? smv.value.trim() : "";
+      var wl = stWord.toLowerCase();
+      if(words.some(function(x){ return x.word.toLowerCase().trim()===wl; })){
+        stMsg = '"'+stWord+'" มีอยู่ในคลังแล้ว'; stWord = ""; renderStory();
+      } else {
+        var stc = stories[storyIdx];
+        var nws = { id:uid(), word:stWord, meaning:meanV, pos:"",
+          example: stc ? stSentenceFor(stWord, stc.en) : "", cat:"นิทาน",
+          status:"new", createdAt:Date.now(), updatedAt:Date.now() };
+        words.unshift(nws);
+        cloudUpsert(nws);
+        try{ localStorage.setItem(KEY, JSON.stringify(words)); }catch(e){}
+        renderCount();
+        stMsg = '✓ เพิ่ม "'+stWord+'" เข้าคลังแล้ว'; stWord = "";
+        renderStory();
+      }
+    }
     else if(a==="cloud-in"){ if(window.VocabCloud) window.VocabCloud.signIn(); }
     else if(a==="cloud-out"){ if(window.VocabCloud) window.VocabCloud.signOut(); }
     else if(a==="export"){ exportCsv(); }
@@ -1198,7 +1381,8 @@
     var w=(parts[0]||"").trim();
     if(!w) return null;
     return { word:w, meaning:(parts[1]||"").trim(), pos:(parts[2]||"").trim(),
-             example:(parts[3]||"").trim(), cat:(parts[4]||"").trim() };
+             example:(parts[3]||"").trim(), cat:(parts[4]||"").trim(),
+             freq:parseInt((parts[5]||"").trim(),10)||0, diff:parseInt((parts[6]||"").trim(),10)||0 };
   }
 
   function bulkAdd(){
@@ -1206,26 +1390,39 @@
     if(!ta) return;
     var lines = ta.value.split(/\r?\n/);
     var have = {};
-    words.forEach(function(x){ have[x.word.toLowerCase().trim()]=1; });
-    var added=0, skipped=0, base=Date.now();
+    words.forEach(function(x, xi){ have[x.word.toLowerCase().trim()] = xi + 1; });
+    var added=0, updated=0, base=Date.now();
     lines.forEach(function(line){
       var r = parseBulkLine(line.trim());
       if(!r) return;
       var key = r.word.toLowerCase();
-      if(have[key]){ skipped++; return; }
-      have[key]=1;
+      if(have[key]){
+        /* คำซ้ำ: เติมข้อมูลที่ยังว่าง + อัปเดตคะแนน แทนการข้ามเฉยๆ */
+        var ex = words[have[key]-1], ch = false;
+        if(r.meaning && !ex.meaning){ ex.meaning = r.meaning; ch = true; }
+        if(r.pos && !ex.pos){ ex.pos = r.pos; ch = true; }
+        if(r.example && !ex.example){ ex.example = r.example; ch = true; }
+        if(r.cat && !ex.cat){ ex.cat = r.cat; ch = true; }
+        if(r.freq && ex.freq !== r.freq){ ex.freq = r.freq; ch = true; }
+        if(r.diff && ex.diff !== r.diff){ ex.diff = r.diff; ch = true; }
+        if(ch){ ex.updatedAt = Date.now(); cloudUpsert(ex); updated++; }
+        return;
+      }
       var bc = document.getElementById("bulkCat") ? document.getElementById("bulkCat").value.trim() : "";
       var nw = { id:uid(), word:r.word, meaning:r.meaning, pos:r.pos, example:r.example||"", cat:(r.cat||bc),
         status:"new", createdAt:base-added, updatedAt:Date.now() };
+      if(r.freq) nw.freq = r.freq;
+      if(r.diff) nw.diff = r.diff;
       words.push(nw);
+      have[key] = words.length;
       cloudUpsert(nw);
       added++;
     });
-    var keep = added ? "" : ta.value;
-    bulkMsg = added
-      ? ("✓ เพิ่มแล้ว "+added+" คำ"+(skipped ? " · ข้ามคำซ้ำ "+skipped+" คำ" : ""))
-      : (skipped ? "คำทั้งหมดมีอยู่แล้ว ("+skipped+" คำ)" : "ไม่พบคำศัพท์ในข้อความที่วาง");
-    if(added){ save(); } else { renderList(); }
+    var keep = (added || updated) ? "" : ta.value;
+    bulkMsg = (added || updated)
+      ? ("✓ เพิ่มแล้ว "+added+" คำ"+(updated ? " · อัปเดตข้อมูลคำเดิม "+updated+" คำ" : ""))
+      : "ไม่พบคำศัพท์ใหม่หรือข้อมูลที่ต้องอัปเดต";
+    if(added || updated){ save(); } else { renderList(); }
     bulkMsg = "";
     var ta2 = document.getElementById("bulk");
     if(ta2 && keep) ta2.value = keep;
@@ -1261,7 +1458,9 @@
       cloudUser = user;
       renderSyncBar(user ? "signedin" : "signedout", user ? (user.email||"") : null);
     },
-    setSyncState: renderSyncBar
+    setSyncState: renderSyncBar,
+    setStories: setStories,
+    getStories: function(){ return stories; }
   };
 
   /* ---------- PWA bits (icon + manifest, injected at runtime) ---------- */
@@ -1308,7 +1507,7 @@ if (firebaseConfig && location.protocol === "file:") {
     const SDK = "https://www.gstatic.com/firebasejs/10.12.2/";
     const { initializeApp } = await import(SDK + "firebase-app.js");
     const { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged } = await import(SDK + "firebase-auth.js");
-    const { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch } = await import(SDK + "firebase-firestore.js");
+    const { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc, deleteDoc, getDoc, onSnapshot, writeBatch } = await import(SDK + "firebase-firestore.js");
 
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
@@ -1325,6 +1524,7 @@ if (firebaseConfig && location.protocol === "file:") {
         c.qStreak=Number(w.qStreak)||0; c.qBox=Number(w.qBox)||0; c.qDue=Number(w.qDue)||0;
         c.qLast=Number(w.qLast)||0; c.qDay=Number(w.qDay)||0;
       }
+      if(w.freq!=null || w.diff!=null){ c.freq=Number(w.freq)||0; c.diff=Number(w.diff)||0; }
       return c;
     }
 
@@ -1353,7 +1553,12 @@ if (firebaseConfig && location.protocol === "file:") {
           V.setSyncState("error", (e && e.message) || String(e));
         }
       },
-      signOut: function(){ signOut(auth); }
+      signOut: function(){ signOut(auth); },
+      saveStories: function(arr){
+        if(!auth.currentUser) return;
+        setDoc(doc(db, "users", auth.currentUser.uid, "data", "stories"), {json: JSON.stringify(arr)})
+          .catch(function(e){ console.error(e); });
+      }
     };
 
     getRedirectResult(auth).catch(function(){});
@@ -1364,6 +1569,18 @@ if (firebaseConfig && location.protocol === "file:") {
       merged = false;
       V.setAuth(user ? { email: user.email } : null);
       if (!user) return;
+      /* นิทาน: ดึงจากคลาวด์ ถ้าไม่มีแต่เครื่องนี้มี ให้อัปโหลดขึ้นไป */
+      getDoc(doc(db, "users", user.uid, "data", "stories")).then(function(sSnap){
+        if(sSnap.exists()){
+          try{ V.setStories(JSON.parse(sSnap.data().json)); }catch(e){}
+        } else {
+          var localStories = V.getStories();
+          if(localStories && localStories.length){
+            setDoc(doc(db, "users", user.uid, "data", "stories"), {json: JSON.stringify(localStories)})
+              .catch(function(e){ console.error(e); });
+          }
+        }
+      }).catch(function(e){ console.error(e); });
       var col = collection(db, "users", user.uid, "words");
       unsub = onSnapshot(col, function(snap){
         var cloudWords = snap.docs.map(function(d){ return d.data(); });
