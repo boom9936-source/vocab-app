@@ -454,7 +454,32 @@
   loadVoices();
   if(synth && "onvoiceschanged" in synth){ synth.onvoiceschanged = loadVoices; }
 
-  var lsPlaying=false, lsToken=0, lsIdx=0, lsSet="all", lsRate=0.9, lsThai=true;
+  var lsPlaying=false, lsToken=0, lsIdx=0, lsSet="all", lsRate=0.9, lsThai=true, lsCurId=null;
+
+  /* จำตำแหน่งฟังล่าสุดไว้ ให้กลับมาฟังต่อจากเดิมได้ */
+  var LSKEY = "vocab-listen-pos-v1";
+  try{
+    var lp = JSON.parse(localStorage.getItem(LSKEY) || "{}");
+    if(lp.set) lsSet = lp.set;
+    if(lp.cat) lsCat = lp.cat;
+    if(typeof lp.idx === "number" && lp.idx >= 0) lsIdx = lp.idx;
+    if(lp.rate) lsRate = lp.rate;
+    if(typeof lp.thai === "boolean") lsThai = lp.thai;
+  }catch(e){}
+  function lsSavePos(){
+    try{ localStorage.setItem(LSKEY, JSON.stringify({set:lsSet, cat:lsCat, idx:lsIdx, rate:lsRate, thai:lsThai})); }catch(e){}
+  }
+
+  /* ประเมินเวลาฟังโดยประมาณ (วินาที) ของรายการคำ */
+  function lsEstimateSec(list){
+    var s = 0;
+    list.forEach(function(w){
+      var en = 0.7 + (w.word||"").length * 0.055;
+      s += 2*en + 1.0;
+      if(lsThai && w.meaning) s += 1.0 + (w.meaning||"").length * 0.075;
+    });
+    return s * (0.9 / (lsRate||0.9));
+  }
 
   function lsDeck(){ return words.filter(function(w){ return (lsSet==="all" || w.status===lsSet) && catMatch(w, lsCat); }); }
   function wait(ms){ return new Promise(function(r){ setTimeout(r,ms); }); }
@@ -500,6 +525,7 @@
         await wait(500);                               if(!lsPlaying||my!==lsToken) break;
       }
       lsIdx = (lsIdx+1) % deck.length;
+      lsSavePos();
     }
   }
 
@@ -507,6 +533,7 @@
   function lsStep(d){
     var deck = lsDeck(); if(!deck.length) return;
     lsIdx = (lsIdx + d + deck.length) % deck.length;
+    lsSavePos();
     if(lsPlaying){ stopSpeak(); lsPlaying=true; lsPlay(); } else { updateListenUI(deck[lsIdx]); }
   }
 
@@ -514,11 +541,23 @@
     if(view!=="listen") return;
     var deck = lsDeck();
     var cur = word || deck[lsIdx] || words[0] || null;
+    lsCurId = cur ? cur.id : null;
     var nw=document.getElementById("lsWord"), nm=document.getElementById("lsMean"), pb=document.getElementById("lsPlay"), pos=document.getElementById("lsPos");
     if(nw) nw.textContent = cur ? cur.word : "—";
     if(nm) nm.textContent = cur ? (cur.meaning||"") : "";
     if(pos) pos.textContent = (cur && cur.pos) ? cur.pos : "";
     if(pb) pb.textContent = lsPlaying ? "⏸" : "▶";
+    var pg = document.getElementById("lsProg");
+    if(pg){
+      if(cur && deck.length){
+        var p1 = Math.min(lsIdx, deck.length-1);
+        var remain = deck.length - p1 - 1;
+        var mins = Math.round(lsEstimateSec(deck.slice(p1)) / 60);
+        var timeTxt = mins >= 60 ? (Math.floor(mins/60)+" ชม. "+(mins%60)+" นาที") : (mins+" นาที");
+        var st = STATUS[cur.status] ? STATUS[cur.status].label : "";
+        pg.textContent = "คำที่ "+(p1+1)+" / "+deck.length+" · เหลือ "+remain+" คำ (≈ "+timeTxt+") · "+st;
+      } else pg.textContent = "";
+    }
   }
 
   function renderListen(){
@@ -543,6 +582,8 @@
           '<button class="pl-main" id="lsPlay" data-action="ls-toggle">'+(lsPlaying?"⏸":"▶")+'</button>'+
           '<button class="pl-side" data-action="ls-next">⏭</button>'+
         '</div>'+
+        '<div class="rev-note" id="lsProg" style="margin-top:14px"></div>'+
+        '<div style="margin-top:10px"><button class="done-btn" data-action="ls-known" style="font-size:13px;padding:6px 14px">✓ คำนี้จำได้แล้ว</button></div>'+
       '</div>'+
       '<div class="pl-set"><div class="pl-row-label">อ่านชุดไหน</div><div class="pills">'+
         setBtn("all","ทั้งหมด")+setBtn("learning","กำลังจำ")+setBtn("new","ใหม่")+'</div></div>'+
@@ -550,7 +591,8 @@
       '<div class="pl-set"><div class="pl-row-label">ความเร็ว</div><div class="pills">'+
         spdBtn(0.7,"ช้า")+spdBtn(0.9,"ปกติ")+spdBtn(1.1,"เร็ว")+'</div></div>'+
       '<div class="pl-set"><div class="pills"><button class="pill'+(lsThai?" on":"")+'" data-action="ls-thai">'+(lsThai?"✓ ":"")+'อ่านคำแปลไทยด้วย</button></div></div>'+
-      '<p class="rev-note">เคล็ดลับขับรถ: ตั้งมือถือบนแท่น เปิดจอค้างไว้ กดเล่นแล้วฟังได้เลย · ระบบจะวนอ่านไปเรื่อยๆ จนกด ⏸</p>';
+      '<p class="rev-note">เคล็ดลับขับรถ: ตั้งมือถือบนแท่น เปิดจอค้างไว้ กดเล่นแล้วฟังได้เลย · ระบบจะวนอ่านไปเรื่อยๆ จนกด ⏸ · ตำแหน่งฟังถูกจำไว้ให้ กลับมาฟังต่อจากเดิมได้เสมอ</p>';
+    updateListenUI(cur);
   }
 
   /* ---------- TYPE PRACTICE ---------- */
@@ -1043,7 +1085,7 @@
     else if(a==="rev-cat"){ revCat = t.getAttribute("data-c"); revIdx=0; revFlip=false; renderReview(); }
     else if(a==="tp-cat"){ tpCat = t.getAttribute("data-c"); tpInit(); renderType(); }
     else if(a==="ls-cat"){
-      lsCat = t.getAttribute("data-c"); lsIdx=0;
+      lsCat = t.getAttribute("data-c"); lsIdx=0; lsSavePos();
       var wasP2 = lsPlaying; stopSpeak();
       renderListen();
       if(wasP2){ lsPlaying=true; lsPlay(); }
@@ -1072,13 +1114,23 @@
     else if(a==="ls-next"){ lsStep(1); }
     else if(a==="ls-prev"){ lsStep(-1); }
     else if(a==="ls-set"){
-      lsSet=t.getAttribute("data-s"); lsIdx=0;
+      lsSet=t.getAttribute("data-s"); lsIdx=0; lsSavePos();
       var wasP=lsPlaying; stopSpeak();
       renderListen();
       if(wasP){ lsPlaying=true; lsPlay(); }
     }
-    else if(a==="ls-speed"){ lsRate=parseFloat(t.getAttribute("data-r")); renderListen(); }
-    else if(a==="ls-thai"){ lsThai=!lsThai; renderListen(); }
+    else if(a==="ls-speed"){ lsRate=parseFloat(t.getAttribute("data-r")); lsSavePos(); renderListen(); }
+    else if(a==="ls-thai"){ lsThai=!lsThai; lsSavePos(); renderListen(); }
+    else if(a==="ls-known"){
+      var li = words.findIndex(function(x){ return x.id===lsCurId; });
+      if(li>=0 && words[li].status!=="mastered"){
+        words[li].status = "mastered";
+        qzSyncManual(words[li]);
+        words[li].updatedAt = Date.now();
+        cloudUpsert(words[li]);
+        save();
+      }
+    }
     else if(a==="qz-start"){ qzStart(false); }
     else if(a==="qz-start-force"){ qzStart(true); }
     else if(a==="qz-home"){ qzReset(); renderQuiz(); }
